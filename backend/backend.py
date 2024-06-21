@@ -284,9 +284,15 @@ class PasswordRecovery:
         if not password or not password_two:
             {"message": "Введите новый пароль и повторите его в поле ниже!",
              "status_code": 400}
+        elif len(password) < 7:
+            return {"message": ("Пароль должен состоять как минимум "
+                                "из 7 символов: соджержать латинские "
+                                "строчные и заглавные буквы, цифры и "
+                                "символы '_' или '-'."),
+                    "status_code": 400}
         elif password != password_two:
-            {"message": "Пароли не сопадают!",
-             "status_code": 400}
+            return {"message": "Пароли не сопадают!",
+                    "status_code": 400}
         else:
             try:
                 await update_password(email, generate_password_hash(password))
