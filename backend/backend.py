@@ -1,5 +1,6 @@
 """Моудль backand проекта."""
 
+from datetime import timedelta
 import ssl
 import re
 import smtplib
@@ -11,8 +12,9 @@ from database.FDataBase import (
     add_user, select_by_email, select_by_user, update_password)
 from config import (
     SECRET_KEY, WOKR_EMAIL, WOKR_EMAIL_PASS,
-    WOKR_PORT, WORK_HOSTNAME)
+    WOKR_PORT, WORK_HOSTNAME, ACCESS_TOKEN_EXPIRE_MINUTES)
 from jwt_tools.jwt import create_jwt_token
+from redis_tools.redis_tools import redis_client
 
 
 async def is_valid_email(email) -> bool:
@@ -77,31 +79,7 @@ class Registration:
             отправляется код(code) и возвращается
             соответствующий JSONResponse ответ.
         """
-        if not email:
-            return {"message": "Введите вашу почту!",
-                    "status_code": 400}
-        elif not await is_valid_email(email):
-            return {"message": "Введите правильную почту!",
-                    "status_code": 400}
-        elif not login:
-            return {"message": "Введите ваш логин!",
-                    "status_code": 400}
-        elif len(login) < 5:
-            return {"message": ("Логин должен состоять как минимум "
-                                "из 5 символов: соджержать латинские "
-                                "строчные и заглавные буквы, цифры и "
-                                "символы '_' или '-'."),
-                    "status_code": 400}
-        elif not password or not password_two:
-            return {"message": "Введите пароль и его повтор в поле ниже",
-                    "status_code": 400}
-        elif len(password) < 7:
-            return {"message": ("Пароль должен состоять как минимум "
-                                "из 7 символов: соджержать латинские "
-                                "строчные и заглавные буквы, цифры и "
-                                "символы '_' или '-'."),
-                    "status_code": 400}
-        elif password != password_two:
+        if password != password_two:
             return {"message": "Введённые пароли не совпадают!",
                     "status_code": 400}
         else:
@@ -166,30 +144,23 @@ class Authorization:
             4. Метод возвращает dict в зависимости от
             результата выполнения функций
         """
-        if not login:
-            return {"message": "Введите ваш логин!",
-                    "status_code": 400}
-        elif not password:
-            return {"message": "Введите ваш пароль!",
+        if await is_valid_email(login):
+            user = await select_by_email(login)
+        else:
+            user = await select_by_user(login)
+        if not user or not check_password_hash(user[0].password, password):
+            return {"message": "Неверный логин или пароль!",
                     "status_code": 400}
         else:
-            if await is_valid_email(login):
-                user = await select_by_email(login)
-            else:
-                user = await select_by_user(login)
-            if not user or not check_password_hash(user[0].password, password):
-                return {"message": "Неверный логин или пароль!",
-                        "status_code": 400}
-            else:
-                code = random.randint(1000, 9999)
-                try:
-                    with open('template_message/t_pass.txt',
-                              'r', encoding='utf-8') as file:
-                        content = file.read()
-                    await send_email(user[0].email, content, {'code': code})
-                    return {"login": login, "code": code, "status_code": 200}
-                except Exception as ex:
-                    return {"message": str(ex), "status_code": 400}
+            code = random.randint(1000, 9999)
+            try:
+                with open('template_message/t_pass.txt',
+                          'r', encoding='utf-8') as file:
+                    content = file.read()
+                await send_email(user[0].email, content, {'code': code})
+                return {"login": login, "code": code, "status_code": 200}
+            except Exception as ex:
+                return {"message": str(ex), "status_code": 400}
 
     @staticmethod
     async def confirm_auth(code: str,
@@ -207,6 +178,10 @@ class Authorization:
         """
         if str(code) == str(verification_code):
             token = create_jwt_token(login, 12, SECRET_KEY)
+            await redis_client.setex(
+                f"token:{token}",
+                timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES)),
+                login)
             return {"message": "Авторизация удалась!",
                     "token": token, "status_code": 200}
         else:
@@ -231,24 +206,20 @@ class PasswordRecovery:
             4. На указаную почту отправляется код с выбранным шаблоном
             5. Далее метод возвращает dict с кодом, почтой и статус-кодом
         """
-        if not is_valid_email(user):
-            return {"message": "Укажите почту, а не логин!",
+        result = await select_by_email(user)
+        if not result:
+            return {"message": "Пользователь не существует!",
                     "status_code": 400}
         else:
-            result = await select_by_email(user)
-            if not result:
-                return {"message": "Пользователь не существует!",
-                        "status_code": 400}
-            else:
-                try:
-                    code = random.randint(1000, 9999)
-                    with open('template_message/t_recover.txt',
-                              'r', encoding='utf-8') as file:
-                        content = file.read()
-                    await send_email(user, content, {'code': code})
-                    return {"code": code, "user": user, "status_code": 200}
-                except Exception as ex:
-                    return {"message": str(ex), "status_code": 400}
+            try:
+                code = random.randint(1000, 9999)
+                with open('template_message/t_recover.txt',
+                          'r', encoding='utf-8') as file:
+                    content = file.read()
+                await send_email(user, content, {'code': code})
+                return {"code": code, "user": user, "status_code": 200}
+            except Exception as ex:
+                return {"message": str(ex), "status_code": 400}
 
     @staticmethod
     async def confirm_recover(code: str, verification_code: str) -> dict:
@@ -281,16 +252,7 @@ class PasswordRecovery:
             1. Введённый пароль обновляется
             2. Метод возвращает dict с сообщением и статус-кодом
         """
-        if not password or not password_two:
-            {"message": "Введите новый пароль и повторите его в поле ниже!",
-             "status_code": 400}
-        elif len(password) < 7:
-            return {"message": ("Пароль должен состоять как минимум "
-                                "из 7 символов: соджержать латинские "
-                                "строчные и заглавные буквы, цифры и "
-                                "символы '_' или '-'."),
-                    "status_code": 400}
-        elif password != password_two:
+        if password != password_two:
             return {"message": "Пароли не сопадают!",
                     "status_code": 400}
         else:
@@ -299,3 +261,16 @@ class PasswordRecovery:
                 return {"message": "Пароль обновлён!", "status_code": 200}
             except Exception as ex:
                 return {"message": ex, "status_code": 400}
+
+
+class Logout:
+    """Обработка логики logout(выхода) из системы."""
+
+    @staticmethod
+    async def delete_token(token: str):
+        """Метод удаляет токен из базы данных redis."""
+        if await redis_client.exists(token):
+            await redis_client.delete(f"token:{token}")
+            return {"message": "Выход выполнен!", "status_code": 308}
+        else:
+            return {"message": "Токен не валиден!", "status_code": 400}

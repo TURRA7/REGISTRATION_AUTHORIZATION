@@ -12,6 +12,9 @@ from redis import asyncio as aioredis
 from config import REDIS_URL
 
 
+redis_client = aioredis.from_url(REDIS_URL)
+
+
 @cache()
 async def get_cache():
     return 1

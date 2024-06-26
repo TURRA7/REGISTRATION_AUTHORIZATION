@@ -1,10 +1,12 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Header, Request
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
-from backend.backend import Authorization, PasswordRecovery, Registration
+from backend.backend import (Authorization, Logout,
+                             PasswordRecovery, Registration)
 from config import SESSION_STATE_CODE, SESSION_STATE_MAIL
+from models.models import (CodeConfirm, PasswordChange,
+                           Recover, Token, UserAuth, UserReg)
 
 
 # Роутеры, для формы регистрации
@@ -17,10 +19,10 @@ app_logout = APIRouter(prefix="/logout")
 
 @app_reg.post("/")
 async def registration(request: Request,
-                       email: Annotated[str, Form()],
-                       login: Annotated[str, Form()],
-                       password: Annotated[str, Form()],
-                       password_two: Annotated[str, Form()]
+                       email: str = Form(...),
+                       login: str = Form(...),
+                       password: str = Form(...),
+                       password_two: str = Form(...)
                        ) -> JSONResponse:
     """
     Обработка регистрации.
@@ -33,11 +35,27 @@ async def registration(request: Request,
         Возвращает готовый JSONResponse ответ с
         состоянием добавления пользователя
     """
-    result = await Registration.register(email, login, password, password_two)
+    try:
+        user_data = UserReg(
+            email=email,
+            login=login,
+            password=password,
+            password_two=password_two
+        )
+    except ValidationError as e:
+        errors = [{'message': err['msg'].split('Value error, ')[-1]}
+                  for err in e.errors()]
+        return JSONResponse(content={"message": errors, "status_code": 422},
+                            status_code=422)
+
+    result = await Registration.register(user_data.email,
+                                         user_data.login,
+                                         user_data.password,
+                                         user_data.password_two)
     if result['status_code'] == 200:
-        request.session['email'] = email
-        request.session['login'] = login
-        request.session['password'] = password
+        request.session['email'] = user_data.email
+        request.session['login'] = user_data.login
+        request.session['password'] = user_data.password
         request.session['code'] = result['code']
         response = JSONResponse(content={"key": result["email"]},
                                 status_code=200)
@@ -49,7 +67,7 @@ async def registration(request: Request,
 
 @app_reg.post("/confirm")
 async def confirm(request: Request,
-                  code: Annotated[str, Form()]) -> JSONResponse:
+                  code: str = Form(...)) -> JSONResponse:
     """
     Обработка формы ввода 'кода подтверждения регистрации'.
 
@@ -62,12 +80,23 @@ async def confirm(request: Request,
         Возвращает готовый JSONResponse ответ с
         состоянием добавления пользователя
     """
+    try:
+        user_data = CodeConfirm(
+            code=code
+        )
+    except ValidationError as e:
+        errors = [{'message': err['msg'].split('Value error, ')[-1]}
+                  for err in e.errors()]
+        return JSONResponse(content={"message": errors,
+                                     "status_code": 422},
+                            status_code=422)
+
     email = request.session.get('email')
     login = request.session.get('login')
     password = request.session.get('password')
     verification_code = request.session.get('code')
     result = await Registration.confirm_register(
-        email, login, password, code, verification_code)
+        email, login, password, user_data.code, verification_code)
     if result['status_code'] == 200:
         request.session.clear()
         response = JSONResponse(content={"message": result["message"]},
@@ -80,8 +109,8 @@ async def confirm(request: Request,
 
 @app_auth.post("/")
 async def authorization(request: Request,
-                        login: Annotated[str, Form()],
-                        password: Annotated[str, Form()],
+                        login: str = Form(...),
+                        password: str = Form(...),
                         remember_me: bool = Form(False)
                         ) -> JSONResponse:
     """
@@ -99,23 +128,29 @@ async def authorization(request: Request,
         статусом авторизации, а так же сохраняет код отправленный на почту
         в сессию и задаёт куки для флага "запомнить меня"
     """
-    result = await Authorization.authorization(login, password)
+    user_data = UserAuth(
+        login=login,
+        password=password,
+        remember_me=remember_me
+    )
+    result = await Authorization.authorization(user_data.login,
+                                               user_data.password)
     if result['status_code'] == 200:
         request.session['code'] = result['code']
-        request.session['login'] = login
+        request.session['login'] = user_data.login
         response = JSONResponse(content={"key": result["login"]},
                                 status_code=200)
     else:
         response = JSONResponse(content={"message": result["message"]},
                                 status_code=result['status_code'])
-    if remember_me:
+    if user_data.remember_me:
         result.set_cookie(key="remember_me", value="true", max_age=30*24*60*60)
     return response
 
 
 @app_auth.post("/verification")
 async def verification(request: Request,
-                       code: Annotated[str, Form()]) -> JSONResponse:
+                       code: str = Form(...)) -> JSONResponse:
     """
     Обработка формы ввода 'кода подтверждения авторизации'.
 
@@ -127,9 +162,20 @@ async def verification(request: Request,
         Возвращает готовый JSONResponse ответ с
         состоянием авторизации
     """
+    try:
+        user_data = CodeConfirm(
+            code=code
+        )
+    except ValidationError as e:
+        errors = [{'message': err['msg'].split('Value error, ')[-1]}
+                  for err in e.errors()]
+        return JSONResponse(content={"message": errors,
+                                     "status_code": 422},
+                            status_code=422)
     verification_code = request.session.get('code')
     login = request.session.get('login')
-    result = await Authorization.confirm_auth(code, verification_code, login)
+    result = await Authorization.confirm_auth(user_data.code,
+                                              verification_code, login)
     if result['status_code'] == 200:
         request.session.clear()
 
@@ -149,7 +195,7 @@ async def verification(request: Request,
 
 @app_auth.post("/recover")
 async def recover(request: Request,
-                  user: Annotated[str, Form()]) -> JSONResponse:
+                  user: str = Form(...)) -> JSONResponse:
     """
     Обработчик логики восстановления(изменения) пароля.
 
@@ -162,7 +208,18 @@ async def recover(request: Request,
         соответствующий JSONResponse ответ, так же сессии
         задаётся индификатор SESSION_STATE_MAIL
     """
-    result = await PasswordRecovery.recover_pass(user)
+    try:
+        user_data = Recover(
+            user=user
+        )
+    except ValidationError as e:
+        errors = [{'message': err['msg'].split('Value error, ')[-1]}
+                  for err in e.errors()]
+        return JSONResponse(content={"message": errors,
+                                     "status_code": 422},
+                            status_code=422)
+
+    result = await PasswordRecovery.recover_pass(user_data.user)
     if result['status_code'] == 200:
         request.session['state'] = SESSION_STATE_MAIL
         request.session['code'] = result['code']
@@ -177,7 +234,7 @@ async def recover(request: Request,
 
 @app_auth.post("/recover/reset_code")
 async def reset_code(request: Request,
-                     code: Annotated[str, Form()]) -> JSONResponse:
+                     code: str = Form(...)) -> JSONResponse:
     """
     Подтверждение восстановления, кодом с почты.
 
@@ -197,10 +254,20 @@ async def reset_code(request: Request,
         на его место ставится новый SESSION_STATE_CODE
         4. Функция возвращает соответствующий JSONResponse ответ
     """
+    try:
+        user_data = CodeConfirm(
+            code=code
+        )
+    except ValidationError as e:
+        errors = [{'message': err['msg'].split('Value error, ')[-1]}
+                  for err in e.errors()]
+        return JSONResponse(content={"message": errors,
+                                     "status_code": 422},
+                            status_code=422)
     if request.session.get('state') == SESSION_STATE_MAIL:
         verification_code = request.session.get('code')
         result = await PasswordRecovery.confirm_recover(
-            code, verification_code)
+            user_data.code, verification_code)
         if result['status_code'] == 200:
             del request.session['state']
             request.session['state'] = SESSION_STATE_CODE
@@ -217,8 +284,8 @@ async def reset_code(request: Request,
 
 @app_auth.post("/recover/reset_code/change_password")
 async def change_password(request: Request,
-                          password: Annotated[str, Form()],
-                          password_two: Annotated[str, Form()]
+                          password: str = Form(...),
+                          password_two: str = Form(...)
                           ) -> JSONResponse:
     """
     Функция восствновления пароля(изменение пароля).
@@ -238,10 +305,22 @@ async def change_password(request: Request,
         2. Получаем из сессии почту и изменяем пароль в update_password
         3. Метод возвращает JSONResponse ответ
     """
+    try:
+        user_data = PasswordChange(
+            password=password,
+            password_two=password_two
+        )
+    except ValidationError as e:
+        errors = [{'message': err['msg'].split('Value error, ')[-1]}
+                  for err in e.errors()]
+        return JSONResponse(content={"message": errors,
+                                     "status_code": 422},
+                            status_code=422)
+
     if request.session.get('state') == SESSION_STATE_CODE:
         email = request.session.get('email')
-        result = await PasswordRecovery.new_password(email, password,
-                                                     password_two)
+        result = await PasswordRecovery.new_password(email, user_data.password,
+                                                     user_data.password_two)
         if result['status_code'] == 200:
             request.session.clear()
             response = JSONResponse(content={"message": result["message"]},
@@ -256,6 +335,19 @@ async def change_password(request: Request,
 
 
 @app_logout.post("/")
-async def logout(request: Request) -> JSONResponse:
+async def logout(request: Request, token: str = Header(...)) -> JSONResponse:
     """Обработчик выхода пользователя"""
-    pass
+    user_data = Token(
+        token=token
+    )
+    result = await Logout.delete_token(user_data.token)
+    if result['status_code'] == 308:
+        # Здесь вы можете указать перенаправление на нужную
+        # страницу в другом микросервисе после выхода пользователя
+        # <--- код --->
+        response = JSONResponse(content={"message": result["message"]},
+                                status_code=result['status_code'])
+    else:
+        response = JSONResponse(content={"message": result["message"]},
+                                status_code=result['status_code'])
+    return response
