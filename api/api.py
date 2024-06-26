@@ -18,12 +18,7 @@ app_logout = APIRouter(prefix="/logout")
 
 
 @app_reg.post("/")
-async def registration(request: Request,
-                       email: str = Form(...),
-                       login: str = Form(...),
-                       password: str = Form(...),
-                       password_two: str = Form(...)
-                       ) -> JSONResponse:
+async def registration(request: Request, data: UserReg) -> JSONResponse:
     """
     Обработка регистрации.
 
@@ -36,26 +31,21 @@ async def registration(request: Request,
         состоянием добавления пользователя
     """
     try:
-        user_data = UserReg(
-            email=email,
-            login=login,
-            password=password,
-            password_two=password_two
-        )
+        data = UserReg(**data.model_dump())
     except ValidationError as e:
         errors = [{'message': err['msg'].split('Value error, ')[-1]}
                   for err in e.errors()]
         return JSONResponse(content={"message": errors, "status_code": 422},
                             status_code=422)
 
-    result = await Registration.register(user_data.email,
-                                         user_data.login,
-                                         user_data.password,
-                                         user_data.password_two)
+    result = await Registration.register(data.email,
+                                         data.login,
+                                         data.password,
+                                         data.password_two)
     if result['status_code'] == 200:
-        request.session['email'] = user_data.email
-        request.session['login'] = user_data.login
-        request.session['password'] = user_data.password
+        request.session['email'] = data.email
+        request.session['login'] = data.login
+        request.session['password'] = data.password
         request.session['code'] = result['code']
         response = JSONResponse(content={"key": result["email"]},
                                 status_code=200)
@@ -66,8 +56,7 @@ async def registration(request: Request,
 
 
 @app_reg.post("/confirm")
-async def confirm(request: Request,
-                  code: str = Form(...)) -> JSONResponse:
+async def confirm(request: Request, data: CodeConfirm) -> JSONResponse:
     """
     Обработка формы ввода 'кода подтверждения регистрации'.
 
@@ -81,9 +70,7 @@ async def confirm(request: Request,
         состоянием добавления пользователя
     """
     try:
-        user_data = CodeConfirm(
-            code=code
-        )
+        data = CodeConfirm(**data.model_dump())
     except ValidationError as e:
         errors = [{'message': err['msg'].split('Value error, ')[-1]}
                   for err in e.errors()]
@@ -96,7 +83,7 @@ async def confirm(request: Request,
     password = request.session.get('password')
     verification_code = request.session.get('code')
     result = await Registration.confirm_register(
-        email, login, password, user_data.code, verification_code)
+        email, login, password, data.code, verification_code)
     if result['status_code'] == 200:
         request.session.clear()
         response = JSONResponse(content={"message": result["message"]},
@@ -108,11 +95,7 @@ async def confirm(request: Request,
 
 
 @app_auth.post("/")
-async def authorization(request: Request,
-                        login: str = Form(...),
-                        password: str = Form(...),
-                        remember_me: bool = Form(False)
-                        ) -> JSONResponse:
+async def authorization(request: Request, data: UserAuth) -> JSONResponse:
     """
     Обработчик логики авторизации.
 
@@ -128,29 +111,24 @@ async def authorization(request: Request,
         статусом авторизации, а так же сохраняет код отправленный на почту
         в сессию и задаёт куки для флага "запомнить меня"
     """
-    user_data = UserAuth(
-        login=login,
-        password=password,
-        remember_me=remember_me
-    )
-    result = await Authorization.authorization(user_data.login,
-                                               user_data.password)
+    result = await Authorization.authorization(data.login,
+                                               data.password)
     if result['status_code'] == 200:
         request.session['code'] = result['code']
-        request.session['login'] = user_data.login
+        request.session['login'] = data.login
         response = JSONResponse(content={"key": result["login"]},
                                 status_code=200)
     else:
         response = JSONResponse(content={"message": result["message"]},
                                 status_code=result['status_code'])
-    if user_data.remember_me:
-        result.set_cookie(key="remember_me", value="true", max_age=30*24*60*60)
+    if data.remember_me:
+        response.set_cookie(key="remember_me", value="true",
+                            max_age=30*24*60*60)
     return response
 
 
 @app_auth.post("/verification")
-async def verification(request: Request,
-                       code: str = Form(...)) -> JSONResponse:
+async def verification(request: Request, data: CodeConfirm) -> JSONResponse:
     """
     Обработка формы ввода 'кода подтверждения авторизации'.
 
@@ -163,9 +141,7 @@ async def verification(request: Request,
         состоянием авторизации
     """
     try:
-        user_data = CodeConfirm(
-            code=code
-        )
+        data = CodeConfirm(**data.model_dump())
     except ValidationError as e:
         errors = [{'message': err['msg'].split('Value error, ')[-1]}
                   for err in e.errors()]
@@ -174,7 +150,7 @@ async def verification(request: Request,
                             status_code=422)
     verification_code = request.session.get('code')
     login = request.session.get('login')
-    result = await Authorization.confirm_auth(user_data.code,
+    result = await Authorization.confirm_auth(data.code,
                                               verification_code, login)
     if result['status_code'] == 200:
         request.session.clear()
@@ -194,8 +170,7 @@ async def verification(request: Request,
 
 
 @app_auth.post("/recover")
-async def recover(request: Request,
-                  user: str = Form(...)) -> JSONResponse:
+async def recover(request: Request, data: Recover) -> JSONResponse:
     """
     Обработчик логики восстановления(изменения) пароля.
 
@@ -209,9 +184,7 @@ async def recover(request: Request,
         задаётся индификатор SESSION_STATE_MAIL
     """
     try:
-        user_data = Recover(
-            user=user
-        )
+        data = Recover(**data.model_dump())
     except ValidationError as e:
         errors = [{'message': err['msg'].split('Value error, ')[-1]}
                   for err in e.errors()]
@@ -219,7 +192,7 @@ async def recover(request: Request,
                                      "status_code": 422},
                             status_code=422)
 
-    result = await PasswordRecovery.recover_pass(user_data.user)
+    result = await PasswordRecovery.recover_pass(data.user)
     if result['status_code'] == 200:
         request.session['state'] = SESSION_STATE_MAIL
         request.session['code'] = result['code']
@@ -234,7 +207,7 @@ async def recover(request: Request,
 
 @app_auth.post("/recover/reset_code")
 async def reset_code(request: Request,
-                     code: str = Form(...)) -> JSONResponse:
+                     data: CodeConfirm) -> JSONResponse:
     """
     Подтверждение восстановления, кодом с почты.
 
@@ -255,9 +228,7 @@ async def reset_code(request: Request,
         4. Функция возвращает соответствующий JSONResponse ответ
     """
     try:
-        user_data = CodeConfirm(
-            code=code
-        )
+        data = CodeConfirm(**data.model_dump())
     except ValidationError as e:
         errors = [{'message': err['msg'].split('Value error, ')[-1]}
                   for err in e.errors()]
@@ -267,7 +238,7 @@ async def reset_code(request: Request,
     if request.session.get('state') == SESSION_STATE_MAIL:
         verification_code = request.session.get('code')
         result = await PasswordRecovery.confirm_recover(
-            user_data.code, verification_code)
+            data.code, verification_code)
         if result['status_code'] == 200:
             del request.session['state']
             request.session['state'] = SESSION_STATE_CODE
@@ -284,9 +255,7 @@ async def reset_code(request: Request,
 
 @app_auth.post("/recover/reset_code/change_password")
 async def change_password(request: Request,
-                          password: str = Form(...),
-                          password_two: str = Form(...)
-                          ) -> JSONResponse:
+                          data: PasswordChange) -> JSONResponse:
     """
     Функция восствновления пароля(изменение пароля).
 
@@ -306,10 +275,7 @@ async def change_password(request: Request,
         3. Метод возвращает JSONResponse ответ
     """
     try:
-        user_data = PasswordChange(
-            password=password,
-            password_two=password_two
-        )
+        data = PasswordChange(**data.model_dump())
     except ValidationError as e:
         errors = [{'message': err['msg'].split('Value error, ')[-1]}
                   for err in e.errors()]
@@ -319,8 +285,8 @@ async def change_password(request: Request,
 
     if request.session.get('state') == SESSION_STATE_CODE:
         email = request.session.get('email')
-        result = await PasswordRecovery.new_password(email, user_data.password,
-                                                     user_data.password_two)
+        result = await PasswordRecovery.new_password(email, data.password,
+                                                     data.password_two)
         if result['status_code'] == 200:
             request.session.clear()
             response = JSONResponse(content={"message": result["message"]},
@@ -335,12 +301,9 @@ async def change_password(request: Request,
 
 
 @app_logout.post("/")
-async def logout(request: Request, token: str = Header(...)) -> JSONResponse:
+async def logout(request: Request, data: Token) -> JSONResponse:
     """Обработчик выхода пользователя"""
-    user_data = Token(
-        token=token
-    )
-    result = await Logout.delete_token(user_data.token)
+    result = await Logout.delete_token(data.token)
     if result['status_code'] == 308:
         # Здесь вы можете указать перенаправление на нужную
         # страницу в другом микросервисе после выхода пользователя
