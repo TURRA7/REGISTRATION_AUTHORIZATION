@@ -20,11 +20,17 @@ class UserReg(BaseModel):
 
     @field_validator('login')
     def validate_login(cls, value: str):
-        if not re.match(r'^[a-zA-Z0-9_-]+$', value):
-            raise ValueError("Логин должен содержать только буквы, "
-                             "цифры и символы: - или _")
-        if not (5 <= len(value) <= 25):
-            raise ValueError('Длина логина должна быть от 5 до 25 символов')
+        if len(value) < 7:
+            raise ValueError(
+                'Длина логина должна быть не менее 7 символов')
+        if not any(char.islower() for char in value):
+            raise ValueError(
+                'Логин должен содержать хотя бы одну строчную букву')
+        if not any(char.isupper() for char in value):
+            raise ValueError(
+                'Логин должен содержать хотя бы одну заглавную букву')
+        if not any(char.isdigit() for char in value):
+            raise ValueError('Логин должен содержать хотя бы одну цифру')
         return value
 
     @field_validator('password')
@@ -40,9 +46,6 @@ class UserReg(BaseModel):
                 'Пароль должен содержать хотя бы одну заглавную букву')
         if not any(char.isdigit() for char in value):
             raise ValueError('Пароль должен содержать хотя бы одну цифру')
-        if not ('-' in value or '_' in value):
-            raise ValueError(
-                'Пароль должен содержать один из символов "-" или "_"')
         return value
 
 
@@ -94,7 +97,7 @@ class PasswordChange(BaseModel):
             raise ValueError('Пароль должен содержать хотя бы одну цифру')
         if not ('-' in value or '_' in value):
             raise ValueError(
-                'Пароль должен содержать один из символов "-" или "_"')
+                'Пароль должен содержать один из символов - или _')
         return value
 
 
