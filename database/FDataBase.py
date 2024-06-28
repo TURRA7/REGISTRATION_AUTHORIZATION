@@ -86,4 +86,4 @@ async def update_password(email, password) -> None:
                 result.password = password
                 await session.commit()
             else:
-                return {"message": f"User with login {email} not found."}           
+                return {"message": f"User with login {email} not found."}

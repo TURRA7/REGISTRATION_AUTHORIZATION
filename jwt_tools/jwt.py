@@ -1,16 +1,3 @@
-"""
-Модуль по работе с JWT токеном.
-
-func:
-    create_jwt_token: Создание jwt токена, на основе
-    переданой информации о пользователе (почте или логину)
-
-    decode_jwt_token: Декодирование jwt токена,
-    получение информации о пользователе
-
-    token_required: Декоратор, для защиты маршрутов
-    с помощью проверки токена
-"""
 import jwt
 from datetime import datetime, timezone, timedelta
 from functools import wraps
@@ -22,13 +9,13 @@ def create_jwt_token(login: str, token_lifetime_hours: int,
     """
     Создание JWT токена.
 
-    args:
-        login: Логин или почта пользователя
-        token_lifetime_hours: Время жизни токена в часах
-        secret_key: Секретный ключ для подписи
+    Args:
+        login (str): Логин или почта пользователя.
+        token_lifetime_hours (int): Время жизни токена в часах.
+        secret_key (str): Секретный ключ для подписи.
 
-    return:
-        Возвращает строку - токен
+    Returns:
+        str: Сгенерированный JWT токен.
     """
     time_token = token_lifetime_hours
     # Словарь для приведения в токен (логин+время жизни токена)
@@ -44,13 +31,12 @@ def decode_jwt_token(token: str, secret_key: str) -> dict:
     """
     Декодирование JWT токена.
 
-    args:
-        token: jwt токен для декодирования
-        secret_key: Секретный ключ для подписи
+    Args:
+        token (str): JWT токен для декодирования.
+        secret_key (str): Секретный ключ для подписи.
 
-    return:
-        Возвращает в зависимости от ответа или декодированную информацию
-        о пользователе или ошибку
+    Returns:
+        dict: Декодированные данные токена или сообщение об ошибке.
     """
     try:
         return jwt.decode(token, secret_key, algorithms=["HS256"])
@@ -61,23 +47,28 @@ def decode_jwt_token(token: str, secret_key: str) -> dict:
 
 
 def token_required(f):
+    """
+    Декоратор для защиты маршрутов с помощью проверки наличия JWT токена.
+
+    Args:
+        f (function): Декорируемая функция, которая требует
+        проверки наличия JWT токена.
+
+    Returns:
+        function: Декорированная функция, которая проверяет
+        наличие и валидность JWT токена.
+    """
     @wraps(f)
     async def decorated_function(request: Request, *args, **kwargs):
-        # Получение токена из заголовков запроса
         token = request.headers.get("Authorization")
-        # Проверка наличия токена
         if not token:
             raise HTTPException(status_code=403,
                                 detail="Токен не предоставлен")
         try:
-            # Обработка токена и декодирование
-            token = token.split(" ")[1]  # Ожидается формат "Bearer <token>"
+            token = token.split(" ")[1]
             data = decode_jwt_token(token)
         except Exception as e:
             raise HTTPException(status_code=401, detail=str(e))
-        # Сохранение данных пользователя в состоянии запроса
         request.state.user = data
-        # Вызов оригинальной декорированной функции
         return await f(request, *args, **kwargs)
-    # Возврат декорированной функции
     return decorated_function
