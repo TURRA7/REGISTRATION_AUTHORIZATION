@@ -58,27 +58,10 @@ services:
       - auth_reg
     restart: always
 
-  # Описание сервиса Nginx
-  nginx:
-    image: nginx:latest
-    container_name: nginx
-    networks:
-      - auth_reg
-    ports:
-      - "8080:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - /path/... # Путь до SSL сертификата
-      - /path/... # Путь до ключа SSL сертификата
-    depends_on:
-      - app
-    restart: always
-
 volumes:
   postgre_data:
     name: postgre_data
   app_data:
-  nginx_conf:
 
 networks:
   auth_reg:
