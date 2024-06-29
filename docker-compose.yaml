@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # Описание сеервиса базы данных PostgreSQL
+  postgres:
+    image: postgres:latest
+    networks:
+      - auth_reg
+    volumes:
+      - type: volume
+        source: postgre_data
+        target: /var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ... # Логин юзера PostgreSQL
+      POSTGRES_PASSWORD: ... # Пароль юзера PostgreSQL
+      POSTGRES_DB: ... # Название базы данных юзера PostgreSQL
+    restart: always
+    
+  app:
+    # Описание самого приложения
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    restart: always
+    networks:
+      - auth_reg
+    volumes:
+      - type: volume
+        source: app_data
+        target: /app/data
+    environment:
+      PG_USER: postgres
+      PG_PASS: Nmd_78900
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_DB: postgres
+      WOKR_EMAIL: ... # Почта, с которой будет отправляться письма с кодом
+      WOKR_EMAIL_PASS: ... # Пароль от почты, с которой будет отправляться письма с кодом
+      WORK_HOSTNAME: smtp.mail.ru
+      WOKR_PORT: 465
+      SECRET_KEY: ... # Секретный ключ (можете сгенерировать свой, чем длинне и сложнее, тем лучше)
+      SESSION_STATE_CODE: ... # Код сессии № 1:можете сгенерировать свой, чем длинне и сложнее, тем лучше
+      SESSION_STATE_MAIL: ... # Код сессии № 2:можете сгенерировать свой, чем длинне и сложнее, тем лучше
+      SENTRY_DNS: ... # Токен для подключения к Sentry(логгирование) - получить можно в сервисе Sentry
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 1440
+      REDIS_URL: redis://redis:6379
+  
+  # Описание сервиса Redis
+  redis:
+    image: redis:latest
+    networks:
+      - auth_reg
+    restart: always
+
+volumes:
+  postgre_data:
+    name: postgre_data
+  app_data:
+
+networks:
+  auth_reg:

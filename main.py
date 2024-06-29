@@ -34,8 +34,10 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY,
 app.add_middleware(SentryAsgiMiddleware)
 
 
+async def main():
+    await create_tables()
+
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(create_tables())
+    asyncio.run(main())
 
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
